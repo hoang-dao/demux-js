@@ -8,6 +8,7 @@ import {
   Action,
   ActionHandler,
   ActionHandlerOptions,
+  Block,
   BlockInfo,
   CurriedEffectRun,
   DeferredEffects,
@@ -77,7 +78,7 @@ export abstract class AbstractActionHandler implements ActionHandler {
     nextBlock: NextBlock,
     isReplay: boolean,
   ): Promise<number | null> {
-    const { block, blockMeta } = nextBlock
+    const { block, blockMeta, rolledbackBlocks } = nextBlock
     const { blockInfo } = block
     const { isRollback, isEarliestBlock } = blockMeta
 
@@ -86,7 +87,7 @@ export abstract class AbstractActionHandler implements ActionHandler {
       await this.initialize()
     }
 
-    await this.handleRollback(isRollback, blockInfo.blockNumber, isReplay, isEarliestBlock)
+    await this.handleRollback(isRollback, blockInfo.blockNumber, isReplay, isEarliestBlock, rolledbackBlocks);
 
     await this.refreshIndexState()
     const nextBlockNeeded = this.lastProcessedBlockNumber + 1
@@ -277,7 +278,7 @@ export abstract class AbstractActionHandler implements ActionHandler {
    * handle reversing actions full blocks at a time, until the last applied block is the block
    * number passed to this method.
    */
-  protected abstract async rollbackTo(blockNumber: number): Promise<void>
+  protected abstract async rollbackTo(blockNumber: number, rolledbackBlocks?: Block[]): Promise<void>
 
   /**
    * Calls `applyUpdaters` and `runEffects` on the given actions
@@ -302,13 +303,13 @@ export abstract class AbstractActionHandler implements ActionHandler {
     this.checkRunningEffects()
   }
 
-  private async handleRollback(isRollback: boolean, blockNumber: number, isReplay: boolean, isEarliestBlock: boolean) {
+  private async handleRollback(isRollback: boolean, blockNumber: number, isReplay: boolean, isEarliestBlock: boolean, rolledbackBlocks?: Block[]) {
     if (isRollback || (isReplay && isEarliestBlock)) {
       const rollbackBlockNumber = blockNumber - 1
       const rollbackCount = this.lastProcessedBlockNumber - rollbackBlockNumber
       this.log.debug(`Rolling back ${rollbackCount} blocks to block ${rollbackBlockNumber}...`)
       const rollbackStart = Date.now()
-      await this.rollbackTo(rollbackBlockNumber)
+      await this.rollbackTo(rollbackBlockNumber, rolledbackBlocks);
       this.rollbackDeferredEffects(blockNumber)
       const rollbackTime = Date.now() - rollbackStart
       this.log.info(`Rolled back ${rollbackCount} blocks to block ${rollbackBlockNumber} (${rollbackTime}ms)`)

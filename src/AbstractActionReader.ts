@@ -68,6 +68,8 @@ export abstract class AbstractActionReader implements ActionReader {
       isEarliestBlock: false,
     }
 
+    const additionalInfo: { rolledbackBlocks?: Block[] } = {};
+
     if (!this.initialized) {
       this.log.info('Action Reader was not initialized before started, so it is being initialized now')
       await this.initialize()
@@ -101,7 +103,7 @@ export abstract class AbstractActionReader implements ActionReader {
         blockMeta.isNewBlock = true
       } else {
         this.logForkDetected(unvalidatedBlockData, expectedHash, actualHash)
-        await this.resolveFork()
+        additionalInfo.rolledbackBlocks = await this.resolveFork();
         blockMeta.isNewBlock = true
         blockMeta.isRollback = true
         // Reset for safety, as new fork could have less blocks than the previous fork
@@ -112,7 +114,7 @@ export abstract class AbstractActionReader implements ActionReader {
     blockMeta.isEarliestBlock = this.currentBlockNumber === this.startAtBlock
 
     return {
-      block: this.currentBlockData,
+      block: { ...this.currentBlockData, ...additionalInfo },
       blockMeta,
       lastIrreversibleBlockNumber: this.lastIrreversibleBlockNumber,
     }
@@ -204,6 +206,10 @@ export abstract class AbstractActionReader implements ActionReader {
       await this.addPreviousBlockToHistory()
     }
 
+    // Push currentBlockData into history before resolving fork because forked currentBlockData was already proceeded by updaters
+    const currentBlockData = this.currentBlockData;
+    const beforeForkHistory = [...this.blockHistory, currentBlockData];
+
     // Pop off blocks from cached block history and compare them with freshly fetched blocks
     while (this.blockHistory.length > 0) {
       if (this.blockHistory.length === 0) {
@@ -232,6 +238,20 @@ export abstract class AbstractActionReader implements ActionReader {
     }
 
     this.currentBlockNumber = this.blockHistory[this.blockHistory.length - 1].blockInfo.blockNumber + 1
+
+    const afterForkHistory = [...this.blockHistory];
+
+    // Compare references between histories, only rollback those forked blocks which don't exist in resolved history
+    while (beforeForkHistory[0] === afterForkHistory[0]) {
+      beforeForkHistory.shift();
+      afterForkHistory.shift();
+    }
+
+    if (beforeForkHistory.length > 0) {
+      return [...beforeForkHistory];
+    }
+
+    return [];
   }
 
   private async initBlockState() {

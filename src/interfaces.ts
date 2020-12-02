@@ -83,6 +83,7 @@ export interface NextBlock {
   block: Block
   blockMeta: BlockMeta
   lastIrreversibleBlockNumber: number
+  rolledbackBlocks?: Block[]
 }
 
 export interface Action {
